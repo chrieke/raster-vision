@@ -13,10 +13,14 @@ class VectorSourceConfig(Config):
     def __init__(self,
                  source_type,
                  class_id_to_filter=None,
-                 default_class_id=1):
+                 default_class_id=1,
+                 line_bufs=None,
+                 point_bufs=None):
         self.source_type = source_type
         self.class_id_to_filter = class_id_to_filter
         self.default_class_id = default_class_id
+        self.line_bufs = line_bufs
+        self.point_bufs = point_bufs
 
     def to_proto(self):
         msg = VectorSourceConfigMsg(source_type=self.source_type)
@@ -31,6 +35,12 @@ class VectorSourceConfig(Config):
 
         if self.default_class_id is not None:
             msg.default_class_id = self.default_class_id
+
+        if self.line_bufs is not None:
+            msg.line_bufs = self.line_bufs
+
+        if self.point_bufs is not None:
+            msg.point_bufs = self.point_bufs
 
         return msg
 
@@ -76,6 +86,10 @@ class VectorSourceConfigBuilder(ConfigBuilder):
             class_id_to_filter=class_id_to_filter,
             default_class_id=default_class_id)
 
+        line_bufs = msg.line_bufs if msg.HasField('line_bufs') else None
+        point_bufs = msg.point_bufs if msg.HasField('point_bufs') else None
+        b = b.with_buffers(line_bufs, point_bufs)
+
         return b
 
     def with_class_inference(self, class_id_to_filter=None,
@@ -98,4 +112,17 @@ class VectorSourceConfigBuilder(ConfigBuilder):
                 [(int(c), f) for c, f in class_id_to_filter.items()])
         b.config['class_id_to_filter'] = class_id_to_filter
         b.config['default_class_id'] = default_class_id
+        return b
+
+    def with_buffers(self, line_bufs=None, point_bufs=None):
+        b = deepcopy(self)
+
+        if line_bufs is not None:
+            line_bufs = dict([(int(c), v) for c, v in line_bufs.items()])
+        b.config['line_bufs'] = line_bufs
+
+        if point_bufs is not None:
+            point_bufs = dict([(int(c), v) for c, v in point_bufs.items()])
+        b.config['point_bufs'] = point_bufs
+
         return b
