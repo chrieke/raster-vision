@@ -4,7 +4,7 @@ import json
 from shapely.geometry import mapping
 import shapely
 
-from rastervision.data import ActivateMixin, geojson_to_shapes
+from rastervision.data import ActivateMixin
 from rastervision.utils.files import (file_to_str)
 from rastervision.evaluation import (ClassificationEvaluator,
                                      SemanticSegmentationEvaluation)
@@ -13,21 +13,8 @@ log = logging.getLogger(__name__)
 
 
 def filter_geojson_by_aoi(geojson, crs_transformer, aoi_polygons):
-    shapes = [s for s, c in geojson_to_shapes(geojson, crs_transformer)]
-    tree = shapely.strtree.STRtree(shapes)
-    filtered_shapes = []
-    for aoi_poly in aoi_polygons:
-        shapes_in_aoi = tree.query(aoi_poly)
-        for s in shapes_in_aoi:
-            s_int = s.intersection(aoi_poly)
-            filtered_shapes.append(s_int)
-
-    features = [{
-        'type': 'feature',
-        'geometry': mapping(s)
-    } for s in filtered_shapes]
-
-    return {'type': 'FeatureCollection', 'features': features}
+    # TODO
+    pass
 
 
 class SemanticSegmentationEvaluator(ClassificationEvaluator):

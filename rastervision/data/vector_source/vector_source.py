@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from shapely.geometry import shape
+from shapely.geometry import shape, mapping
 import shapely
 
 from rastervision.data.vector_source.class_inference import (
@@ -15,7 +15,7 @@ def transform_geojson(geojson,
     for f in geojson['features']:
         # This was added to handle empty geoms which appear when using
         # OSM vector tiles.
-        if f['geometry'].get('coordinates') is None:
+        if (not f.get('geometry')) or (not f['geometry'].get('coordinates')):
             continue
 
         geom = shape(f['geometry'])
@@ -60,7 +60,11 @@ def transform_geojson(geojson,
                 # Use buffer trick to handle self-intersecting polygons. Buffer returns
                 # a MultiPolygon if there is a bowtie, so we have to convert it to a
                 # list of Polygons.
-                new_geoms.extend(list(g.buffer(0)))
+                poly_buf = g.buffer(0)
+                if poly_buf.geom_type == 'MultiPolygon':
+                    new_geoms.extend(list(poly_buf))
+                else:
+                    new_geoms.append(poly_buf)
         geoms = new_geoms
 
         if crs_transformer is not None:
@@ -73,7 +77,7 @@ def transform_geojson(geojson,
         for g in geoms:
             new_f = {
                 'type': 'Feature',
-                'geometry': shapely.mapping(g),
+                'geometry': mapping(g),
                 'properties': f['properties']
             }
             new_features.append(new_f)
