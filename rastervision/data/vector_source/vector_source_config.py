@@ -37,10 +37,20 @@ class VectorSourceConfig(Config):
             msg.default_class_id = self.default_class_id
 
         if self.line_bufs is not None:
-            msg.line_bufs = self.line_bufs
+            # Convert class_ids to str to put into json format.
+            line_bufs = dict(
+                [(str(c), v)
+                 for c, v in self.line_bufs.items()])
+            d = {'line_bufs': line_bufs}
+            msg.MergeFrom(json_format.ParseDict(d, VectorSourceConfigMsg()))
 
         if self.point_bufs is not None:
-            msg.point_bufs = self.point_bufs
+            # Convert class_ids to str to put into json format.
+            point_bufs = dict(
+                [(str(c), v)
+                 for c, v in self.point_bufs.items()])
+            d = {'point_bufs': point_bufs}
+            msg.MergeFrom(json_format.ParseDict(d, VectorSourceConfigMsg()))
 
         return msg
 

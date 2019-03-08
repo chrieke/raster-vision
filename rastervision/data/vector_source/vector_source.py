@@ -15,7 +15,11 @@ def transform_geojson(geojson,
     for f in geojson['features']:
         # This was added to handle empty geoms which appear when using
         # OSM vector tiles.
-        if (not f.get('geometry')) or (not f['geometry'].get('coordinates')):
+        is_empty_geom = (
+            (not f.get('geometry')) or
+            ((not f['geometry'].get('coordinates')) and
+             (not f['geometry'].get('geometries'))))
+        if is_empty_geom:
             continue
 
         geom = shape(f['geometry'])
@@ -28,7 +32,7 @@ def transform_geojson(geojson,
         # Split any MultiX to list of X.
         new_geoms = []
         for g in geoms:
-            if geom.geom_type in ['MultiPolygon', 'MultiPoint', 'MultiLineString']:
+            if g.geom_type in ['MultiPolygon', 'MultiPoint', 'MultiLineString']:
                 new_geoms.extend(list(g))
             else:
                 new_geoms.append(g)

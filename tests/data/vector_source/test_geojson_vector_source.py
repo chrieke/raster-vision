@@ -1,6 +1,10 @@
 import unittest
 import os
 
+import shapely
+from shapely.geometry import shape
+import numpy as np
+
 from rastervision.data.vector_source import (GeoJSONVectorSourceConfigBuilder,
                                              GeoJSONVectorSourceConfig)
 from rastervision.core.class_map import ClassMap
@@ -19,8 +23,8 @@ class TestGeoJSONVectorSource(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def props_to_geojson(self, props):
-        return {
+    def _test_class_inf(self, props, exp_class_ids, default_class_id=None):
+        geojson = {
             'type':
             'FeatureCollection',
             'features': [{
@@ -28,9 +32,6 @@ class TestGeoJSONVectorSource(unittest.TestCase):
                 'geometry': {'type': 'Point', 'coordinates': [1, 1]}
             }]
         }
-
-    def _test_class_inf(self, props, exp_class_ids, default_class_id=None):
-        geojson = self.props_to_geojson(props)
         json_to_file(geojson, self.uri)
 
         class_map = ClassMap.construct_from(['building', 'car', 'tree'])
@@ -66,66 +67,134 @@ class TestGeoJSONVectorSource(unittest.TestCase):
     def test_class_inf_no_default(self):
         self._test_class_inf({}, [])
 
-    def test_transform_geojson(self):
-        geojson = {
+    def geom_to_geojson(self, geom):
+        return {
             'type': 'FeatureCollection',
             'features': [
                 {
-                    'geometry': {
-                        'type': 'Point',
-                        'coordinates': []
-                    }
-                },
-                {
-                    'geometry': {
-                        'type': 'GeometryCollection',
-                        'geometries': [
-                            {
-                                'type': 'MultiPoint',
-                                'coordinates': [[10, 10], [20, 20]]
-                            }
-                        ]
-                    }
-                },
-                {
-                    'geometry': {
-                        'type': 'MultiLineString',
-                        'coordinates': [
-                            [[10, 10], [20, 20]],
-                            [[20, 20], [30, 30]]]
-                    }
-                },
-                {
-                    'geometry': {
-                        'type': 'Point',
-                        'coordinates': [4, 4],
-                    },
-                    'properties': {
-                        'class_id': 2
-                    }
-                },
-                {
-                    'geometry': {
-                        'type': 'Polygon',
-                        'coordinates': [[[10, 10], [10, 20], [20, 20], [10, 10]]]
-                    }
+                    'geometry': geom
                 }
             ]
         }
-        json_to_file(geojson, self.uri)
 
+    def transform_geojson(self, geojson, line_bufs=None, point_bufs=None,
+                          crs_transformer=None):
+        if crs_transformer is None:
+            crs_transformer = IdentityCRSTransformer()
+        class_map = ClassMap.construct_from(['building'])
+        json_to_file(geojson, self.uri)
         b = GeoJSONVectorSourceConfigBuilder() \
             .with_uri(self.uri) \
+            .with_buffers(line_bufs=line_bufs, point_bufs=point_bufs) \
             .build()
-
         msg = b.to_proto()
         config = GeoJSONVectorSourceConfig.from_proto(msg)
         source = config.create_source(
-            crs_transformer=IdentityCRSTransformer(), class_map=self.class_map)
+            crs_transformer=crs_transformer, class_map=class_map)
+        return source.get_geojson()
 
-        trans_geojson = source.get_geojson()
-        import pprint
-        pprint.pprint(trans_geojson, indent=4)
+    def test_transform_geojson_no_coords(self):
+        geom = {
+            'type': 'Point',
+            'coordinates': []
+        }
+        geojson = self.geom_to_geojson(geom)
+        trans_geojson = self.transform_geojson(geojson)
+
+        self.assertEqual(0, len(trans_geojson['features']))
+
+    def test_transform_geojson_geom_coll(self):
+        geom = {
+            'type': 'GeometryCollection',
+            'geometries': [
+                {
+                    'type': 'MultiPoint',
+                    'coordinates': [[10, 10], [20, 20]]
+                }
+            ]
+        }
+        geojson = self.geom_to_geojson(geom)
+        trans_geojson = self.transform_geojson(geojson)
+
+        feats = trans_geojson['features']
+        self.assertEqual(len(feats), 2)
+        self.assertEqual(feats[0]['geometry']['type'], 'Polygon')
+        self.assertEqual(feats[1]['geometry']['type'], 'Polygon')
+
+    def test_transform_geojson_multi(self):
+        geom = {
+            'type': 'MultiPoint',
+            'coordinates': [[10, 10], [20, 20]]
+        }
+        geojson = self.geom_to_geojson(geom)
+        trans_geojson = self.transform_geojson(geojson)
+
+        feats = trans_geojson['features']
+        self.assertEqual(len(feats), 2)
+        self.assertEqual(feats[0]['geometry']['type'], 'Polygon')
+        self.assertEqual(feats[1]['geometry']['type'], 'Polygon')
+
+    def test_transform_geojson_line_buf(self):
+        geom = {
+            'type': 'LineString',
+            'coordinates': [[10, 10], [10, 20]]
+        }
+        geojson = self.geom_to_geojson(geom)
+
+        trans_geojson = self.transform_geojson(geojson, line_bufs={1: 5.0})
+        trans_geom = trans_geojson['features'][0]['geometry']
+        self.assertTrue(shape(geom).buffer(5.0).equals(shape(trans_geom)))
+
+        trans_geojson = self.transform_geojson(geojson, line_bufs={2: 5.0})
+        trans_geom = trans_geojson['features'][0]['geometry']
+        self.assertTrue(shape(geom).buffer(1.0).equals(shape(trans_geom)))
+
+        trans_geojson = self.transform_geojson(geojson, line_bufs={1: None})
+        trans_geom = trans_geojson['features'][0]['geometry']
+        self.assertTrue(shape(geom).equals(shape(trans_geom)))
+
+    def test_transform_point_buf(self):
+        geom = {
+            'type': 'Point',
+            'coordinates': [10, 10]
+        }
+        geojson = self.geom_to_geojson(geom)
+
+        trans_geojson = self.transform_geojson(geojson, point_bufs={1: 5.0})
+        trans_geom = trans_geojson['features'][0]['geometry']
+        self.assertTrue(shape(geom).buffer(5.0).equals(shape(trans_geom)))
+
+        trans_geojson = self.transform_geojson(geojson, point_bufs={2: 5.0})
+        trans_geom = trans_geojson['features'][0]['geometry']
+        self.assertTrue(shape(geom).buffer(1.0).equals(shape(trans_geom)))
+
+        trans_geojson = self.transform_geojson(geojson, point_bufs={1: None})
+        trans_geom = trans_geojson['features'][0]['geometry']
+        self.assertTrue(shape(geom).equals(shape(trans_geom)))
+
+    def test_transform_polygon(self):
+        geom = {
+            'type': 'Polygon',
+            'coordinates': [[[0, 0], [0, 10], [10, 10], [10, 0], [0, 0]]]
+        }
+        geojson = self.geom_to_geojson(geom)
+
+        trans_geojson = self.transform_geojson(geojson)
+        trans_geom = trans_geojson['features'][0]['geometry']
+        self.assertTrue(shape(geom).equals(shape(trans_geom)))
+
+        class DoubleTransformer():
+            def map_to_pixel(self, p):
+                return 2 * np.array(p)
+
+        trans_geojson = self.transform_geojson(
+            geojson, crs_transformer=DoubleTransformer())
+        trans_geom = trans_geojson['features'][0]['geometry']
+        exp_geom = {
+            'type': 'Polygon',
+            'coordinates': [[[0, 0], [0, 20], [20, 20], [20, 0], [0, 0]]]
+        }
+        self.assertTrue(shape(exp_geom).equals(shape(trans_geom)))
 
 
 if __name__ == '__main__':
